@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TrustEye – Image Authenticity Check</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #111827;
+      --border: #e5e7eb;
+      --accent: #6366f1;
+      --error: #ef4444;
+      --radius: 12px;
+      --shadow: 0 10px 30px rgba(0,0,0,.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827;
+        --fg: #f9fafb;
+        --border: #374151;
+      }
+    }
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    .card {
+      width: 90%;
+      max-width: 420px;
+      padding: 2.5rem 2rem;
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, transform .2s;
+      box-shadow: var(--shadow);
+      outline: none;
+    }
+    .card:focus-visible {
+      border-color: var(--accent);
+      transform: scale(1.01);
+    }
+    .card.drag {
+      border-color: var(--accent);
+      transform: scale(1.02);
+    }
+    svg {
+      color: var(--accent);
+      margin-bottom: .75rem;
+    }
+    h3 {
+      margin: 0 0 .25rem;
+      font-size: 1.25rem;
+    }
+    p {
+      margin: 0 0 .5rem;
+      opacity: .7;
+    }
+    small {
+      opacity: .5;
+    }
+    .preview-box img {
+      width: 100%;
+      max-height: 180px;
+      object-fit: cover;
+      border-radius: var(--radius);
+    }
+    .preview-box span {
+      display: block;
+      margin-top: .5rem;
+      font-size: .875rem;
+      opacity: .8;
+    }
+    .progress {
+      position: relative;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 1rem 0;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width .2s;
+    }
+    .progress-txt {
+      position: absolute;
+      inset: 0;
+      font-size: .75rem;
+      line-height: 8px;
+      color: #fff;
+      text-align: center;
+    }
+    .error {
+      color: var(--error);
+      font-size: .875rem;
+      margin: .75rem 0 0;
+    }
+    .reset {
+      margin-top: 1rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: .5rem 1rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .reset:hover {
+      filter: brightness(1.1);
+    }
+  </style>
+</head>
+<body>
+  <div
+    class="card"
+    id="dropZone"
+    tabindex="0"
+    role="button"
+    aria-label="Upload image"
+  >
+    <input
+      id="fileInput"
+      type="file"
+      accept="image/jpeg,image/png,image/webp,image/gif"
+      hidden
+    />
+
+    <div id="initial">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/>
+        <line x1="16" y1="5" x2="22" y2="5"/>
+        <line x1="19" y1="2" x2="19" y2="8"/>
+        <polyline points="14 11 9 16 4 11"/>
+      </svg>
+      <h3>Drop your image here</h3>
+      <p>or click to browse</p>
+      <small>JPEG, PNG, WebP, GIF — max 10 MB</small>
+    </div>
+
+    <div id="preview" class="preview-box" style="display:none;">
+      <img id="thumb" alt="preview" />
+      <span id="name"></span>
+    </div>
+
+    <div id="progressBox" class="progress" style="display:none;">
+      <div id="progressBar" class="progress-bar"></div>
+      <span id="progressTxt" class="progress-txt">0%</span>
+    </div>
+
+    <p id="error" class="error"></p>
+
+    <button id="resetBtn" class="reset" style="display:none;">Upload another</button>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const initial = document.getElementById('initial');
+    const preview = document.getElementById('preview');
+    const thumb = document.getElementById('thumb');
+    const name = document.getElementById('name');
+    const progressBox = document.getElementById('progressBox');
+    const progressBar = document.getElementById('progressBar');
+    const progressTxt = document.getElementById('progressTxt');
+    const error = document.getElementById('error');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const MAX_MB = 10;
+    const ACCEPT = ['image/jpeg','image/png','image/webp','image/gif'];
+
+    function reset() {
+      fileInput.value = '';
+      initial.style.display = 'block';
+      preview.style.display = 'none';
+      progressBox.style.display = 'none';
+      error.textContent = '';
+      resetBtn.style.display = 'none';
+      if (thumb.src.startsWith('blob:')) URL.revokeObjectURL(thumb.src);
+    }
+
+    function handleFile(file) {
+      reset();
+      if (!ACCEPT.includes(file.type)) {
+        error.textContent = 'Only JPEG, PNG, WebP & GIF are allowed.';
+        return;
+      }
+      if (file.size > MAX_MB * 1024 * 1024) {
+        error.textContent = `Max size is ${MAX_MB} MB.`;
+        return;
+      }
+      initial.style.display = 'none';
+      preview.style.display = 'block';
+      thumb.src = URL.createObjectURL(file);
+      name.textContent = file.name;
+
+      // fake upload
+      progressBox.style.display = 'block';
+      let pct = 0;
+      const tick = setInterval(() => {
+        pct += Math.random() * 15;
+        if (pct >= 100) {
+          clearInterval(tick);
+          pct = 100;
+          progressBar.style.width = '100%';
+          progressTxt.textContent = '100%';
+          setTimeout(() => {
+            progressBox.style.display = 'none';
+            resetBtn.style.display = 'inline-block';
+            // TODO: call TrustEye API here
+            console.log('Send to TrustEye →', file.name);
+          }, 300);
+        } else {
+          const p = Math.floor(pct);
+          progressBar.style.width = p + '%';
+          progressTxt.textContent = p + '%';
+        }
+      }, 200);
+    }
+
+    // events
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') dropZone.click();
+    });
+    fileInput.addEventListener('change', e => {
+      const [f] = e.target.files;
+      if (f) handleFile(f);
+    });
+
+    // drag & drop
+    ['dragover','dragenter'].forEach(ev =>
+      dropZone.addEventListener(ev, e => (e.preventDefault(), dropZone.classList.add('drag')))
+    );
+    ['dragleave','dragend'].forEach(ev =>
+      dropZone.addEventListener(ev, () => dropZone.classList.remove('drag'))
+    );
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('drag');
+      const [f] = e.dataTransfer.files;
+      if (f) handleFile(f);
+    });
+
+    resetBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      reset();
+    });
+  </script>
+</body>
+</html>
